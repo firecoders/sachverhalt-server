@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Sachverhalt.Server.ServerM where
 
@@ -15,17 +16,32 @@ import qualified Data.Text as T
 
 -- The monad for the server-side implementation sachverhalt
 newtype ServerM a = ServerM {
-        extractServerM :: ExceptT String (StateT Object (ReaderT Object IO)) a
-    } deriving (Monad, Applicative, Functor, MonadIO)
+        extractServerM :: ExceptT Object (StateT Object (ReaderT Object IO)) a
+    } deriving (Applicative, Functor, MonadIO)
+
+instance Monad ServerM where
+    a >>= b = ServerM $ extractServerM a >>= extractServerM . b
+    fail = throwServerM . mkErr . T.pack
+    return = ServerM . return
 
 -- Evaluate a ServerM, usually meaning generating a response to a request
-evalServerM :: ServerM a -> Object -> IO (Either String Object)
+evalServerM :: ServerM a -> Object -> IO (Either Object Object)
 evalServerM (ServerM m) request = do
     unwrapped <- unwrap
     case unwrapped of
         (Left err, _) -> return . Left $ err
         (_, obj) -> return . Right $ obj
     where unwrap = runReaderT (runStateT (runExceptT m) H.empty) request
+
+-- | Create a simple error object from an error message
+mkErr :: T.Text -> Object
+mkErr reason = setField "reason" reason .
+               setField "success" False $
+               H.empty
+
+-- Insert a value into an Object
+setField :: (ToJSON a) => T.Text -> a -> Object -> Object
+setField k v = H.insert k . toJSON $ v
 
 -- Set a field in the response
 setRes :: (ToJSON a) => T.Text -> a -> ServerM ()
@@ -37,7 +53,8 @@ getRes key = do
     v <- parsed
     case v of
         Just v -> return v
-        Nothing -> throwServerM "Error: Can't find field in result"
+        Nothing -> throwServerM . setField "field" key .
+                   mkErr $ "Can't find field in result"
     where parsed = ServerM $ do
             result <- lift . gets $ H.lookup key
             case result of
@@ -56,14 +73,15 @@ getReq key = do
     obj <- ServerM . lift . lift $ ask
     case parseMaybe (obj .:) key of
         Just v  -> return v
-        Nothing -> throwServerM "Error: Can't find field in request"
+        Nothing -> throwServerM . setField "field" key .
+                   mkErr $ "Error: Can't find field in request"
 
 -- Throw an error
-throwServerM :: String -> ServerM a
+throwServerM :: Object -> ServerM a
 throwServerM = ServerM . throwError
 
 -- Catch an error
-catchServerM :: ServerM a -> (String -> ServerM a) -> ServerM a
+catchServerM :: ServerM a -> (Object -> ServerM a) -> ServerM a
 catchServerM (ServerM m) f = ServerM . catchError m $ extractServerM . f
 
 -- Run a ServerM and if it fails, return Nothing otherwise return a Just
