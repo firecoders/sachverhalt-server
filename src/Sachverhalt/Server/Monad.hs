@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Sachverhalt.Server.ServerM where
+module Sachverhalt.Server.Monad where
 
 import Control.Monad.Trans
 import Control.Monad.Trans.Reader
