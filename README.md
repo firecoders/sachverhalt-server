@@ -1,6 +1,10 @@
 # sachverhalt-server
 
 #### The server-side reference implementation of the sachverhalt protocol
+
+**This project has been abandoned.** We don't have see any reason to write
+another issue-management system, as there are plenty of good options already.
+
 The server is written and configured in haskell, akin to
 [xmonad][xmonad]
 
